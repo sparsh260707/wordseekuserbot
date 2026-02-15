@@ -6,12 +6,6 @@ from telethon import TelegramClient, events
 # ---------------- CONFIG ----------------
 _client = None  # Global client reference
 
-def init_client(api_id, api_hash, session_name="userbot_solver"):
-    global client, _client
-    client = TelegramClient(session_name, api_id, api_hash)
-    _client = client
-    return client
-
 # Config variables (external injection)
 START_WORD = "apple"
 WORDLIST_FILE = "words/commonWords.json"
@@ -19,9 +13,11 @@ GUESS_DELAY = 0.5
 AUTO_LOOP = True
 
 def init_client(api_id, api_hash, session_name="userbot_solver"):
+    """Initialize client - MUST be called before use"""
     global client, _client
     client = TelegramClient(session_name, api_id, api_hash)
     _client = client
+    return client
 
 # ---------------- STATE ----------------
 possible = []
@@ -34,7 +30,7 @@ grays = set()
 
 game_active = False
 CHAT_ID = None
-HOSTS = set()  # ← ADDED: Host control
+HOSTS = set()
 
 # ---------------- SOLVER ----------------
 def update_constraints(word, hint):
@@ -80,23 +76,23 @@ def best_guess(words):
     return max(words, key=lambda w: len(set(w)))
 
 # ---------------- OUTGOING (LOCK) ----------------
-@client.on(events.NewMessage(outgoing=True))
 async def outgoing_handler(event):
+    """Outgoing handler - requires client to be initialized"""
     global CHAT_ID
-
+    if 'client' not in globals():
+        return
+        
     text = event.raw_text.lower().strip()
-
     if text.startswith("/new") and CHAT_ID is None:
         CHAT_ID = event.chat_id
         print(f"[LOCKED] chat = {CHAT_ID}")
 
 # ---------------- INCOMING ----------------
-@client.on(events.NewMessage(incoming=True))
 async def game_listener(event):
+    """Game listener - requires client to be initialized"""
     global game_active, last_guess, possible
-
-    # ← MODIFIED: Check hosts + CHAT_ID
-    if CHAT_ID is None or event.chat_id != CHAT_ID or not HOSTS:
+    
+    if 'client' not in globals() or CHAT_ID is None or event.chat_id != CHAT_ID or not HOSTS:
         return
 
     sender = await event.get_sender()
@@ -185,24 +181,36 @@ async def game_listener(event):
         print(f"[GUESS] {guess}")
 
 # ---------------- CONTROL API ----------------
-async def start_solver():
-    """Start the solver (called by host bot)"""
-    global client
-    if client.is_connected():
-        return
+async def start_solver(api_id, api_hash):
+    """Initialize and start solver"""
+    global client, HOSTS
+    HOSTS.add(1)  # Enable hosting
+    init_client(api_id, api_hash)
     await client.start()
-    print("Userbot running (HOSTED MODE)")
+    
+    # Register event handlers AFTER client creation
+    client.add_event_handler(outgoing_handler, events.NewMessage(outgoing=True))
+    client.add_event_handler(game_listener, events.NewMessage(incoming=True))
+    
+    print("✅ Solver initialized and running!")
 
 async def stop_solver():
-    """Stop the solver"""
-    global client
-    if client.is_connected():
+    """Stop solver"""
+    global HOSTS, client
+    HOSTS.clear()
+    if client and client.is_connected():
         await client.disconnect()
 
-# Keep original main for compatibility
 async def main():
-    global client
+    """Original standalone main"""
+    global client, HOSTS
+    HOSTS.add(1)  # Enable for standalone
+    init_client(33508729, "b5b3408af6901b84eb3fe8b3cf2d49c5")
     await client.start()
+    
+    client.add_event_handler(outgoing_handler, events.NewMessage(outgoing=True))
+    client.add_event_handler(game_listener, events.NewMessage(incoming=True))
+    
     print("Userbot running (FINAL AUTO-NEW)")
     await client.run_until_disconnected()
 
