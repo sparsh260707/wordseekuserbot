@@ -1,17 +1,14 @@
-import asyncio
-import re
-import json
-from telethon import TelegramClient, events
+# Add this to TOP of wordseek.py after imports:
+import os
+from config import Config
 
-# ---------------- CONFIG ----------------
-_client = None  # Global client reference
+# Replace hardcoded values:
+START_WORD = Config.START_WORD
+WORDLIST_FILE = Config.WORDLIST_FILE
+GUESS_DELAY = Config.GUESS_DELAY
+AUTO_LOOP = Config.AUTO_LOOP
 
-# Config variables (external injection)
-START_WORD = "apple"
-WORDLIST_FILE = "words/commonWords.json"
-GUESS_DELAY = 0.5
-AUTO_LOOP = True
-
+# Remove the old hardcoded config section
 def init_client(api_id, api_hash, session_name="userbot_solver"):
     """Initialize client - MUST be called before use"""
     global client, _client
