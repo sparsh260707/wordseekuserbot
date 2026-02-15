@@ -1,9 +1,20 @@
-# Add this to TOP of wordseek.py after imports:
+# =========================
+# IMPORTS
+# =========================
 import os
+import sys
+import time
+import random
 import asyncio
+import requests
+
+from telethon import TelegramClient, events
 from config import Config
 
-# Replace hardcoded values:
+
+# =========================
+# CONFIG VALUES (from config.py)
+# =========================
 START_WORD = Config.START_WORD
 WORDLIST_FILE = Config.WORDLIST_FILE
 GUESS_DELAY = Config.GUESS_DELAY
