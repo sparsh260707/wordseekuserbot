@@ -1,5 +1,6 @@
 # Add this to TOP of wordseek.py after imports:
 import os
+import asyncio
 from config import Config
 
 # Replace hardcoded values:
