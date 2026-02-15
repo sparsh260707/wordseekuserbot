@@ -4,15 +4,19 @@ import json
 from telethon import TelegramClient, events
 
 # ---------------- CONFIG ----------------
-# api_id = 33508729  # ← REMOVED - from config
-# api_hash = "b5b3408af6901b84eb3fe8b3cf2d49c5"  # ← REMOVED - from config
+_client = None  # Global client reference
+
+def init_client(api_id, api_hash, session_name="userbot_solver"):
+    global client, _client
+    client = TelegramClient(session_name, api_id, api_hash)
+    _client = client
+    return client
+
+# Config variables (external injection)
 START_WORD = "apple"
-WORDLIST_FILE = "words/commonWords.json"  # ← FIXED path
+WORDLIST_FILE = "words/commonWords.json"
 GUESS_DELAY = 0.5
 AUTO_LOOP = True
-
-# ← ADDED: Global client reference (for external control)
-_client = None
 
 def init_client(api_id, api_hash, session_name="userbot_solver"):
     global client, _client
