@@ -1,21 +1,36 @@
 import asyncio
 import re
 import json
-import os
 from telethon import TelegramClient, events
-from config import Config
+
+# ---------------- CONFIG ----------------
+# api_id = 33508729  # ← REMOVED - from config
+# api_hash = "b5b3408af6901b84eb3fe8b3cf2d49c5"  # ← REMOVED - from config
+START_WORD = "apple"
+WORDLIST_FILE = "words/commonWords.json"  # ← FIXED path
+GUESS_DELAY = 0.5
+AUTO_LOOP = True
+
+# ← ADDED: Global client reference (for external control)
+_client = None
+
+def init_client(api_id, api_hash, session_name="userbot_solver"):
+    global client, _client
+    client = TelegramClient(session_name, api_id, api_hash)
+    _client = client
 
 # ---------------- STATE ----------------
 possible = []
 used_words = set()
 last_guess = None
+
 greens = {}
 yellows = {}
 grays = set()
+
 game_active = False
 CHAT_ID = None
-
-client = TelegramClient("wordseek_session", Config.API_ID, Config.API_HASH)
+HOSTS = set()  # ← ADDED: Host control
 
 # ---------------- SOLVER ----------------
 def update_constraints(word, hint):
@@ -60,37 +75,24 @@ def best_guess(words):
         return None
     return max(words, key=lambda w: len(set(w)))
 
-# ---------------- COMMANDS ----------------
-@client.on(events.NewMessage(pattern='/host'))
-async def host_command(event):
-    """Host command to show status and lock to current chat"""
-    global CHAT_ID
-    CHAT_ID = event.chat_id
-    await event.reply(
-        f"🤖 **WordSeek Bot Active**\n"
-        f"🔒 **Locked to chat**: `{CHAT_ID}`\n"
-        f"🎯 **Start word**: `{Config.START_WORD}`\n"
-        f"⏱️ **Delay**: `{Config.GUESS_DELAY}s`\n"
-        f"🔄 **Auto loop**: `{Config.AUTO_LOOP}`\n\n"
-        f"**Ready! Send `/new@WordSeekBot` to start.**",
-        parse_mode='md'
-    )
-    print(f"[HOST] Locked to chat {CHAT_ID}")
-
+# ---------------- OUTGOING (LOCK) ----------------
 @client.on(events.NewMessage(outgoing=True))
 async def outgoing_handler(event):
     global CHAT_ID
+
     text = event.raw_text.lower().strip()
+
     if text.startswith("/new") and CHAT_ID is None:
         CHAT_ID = event.chat_id
         print(f"[LOCKED] chat = {CHAT_ID}")
 
-# ---------------- GAME HANDLER ----------------
+# ---------------- INCOMING ----------------
 @client.on(events.NewMessage(incoming=True))
 async def game_listener(event):
     global game_active, last_guess, possible
 
-    if CHAT_ID is None or event.chat_id != CHAT_ID:
+    # ← MODIFIED: Check hosts + CHAT_ID
+    if CHAT_ID is None or event.chat_id != CHAT_ID or not HOSTS:
         return
 
     sender = await event.get_sender()
@@ -101,7 +103,7 @@ async def game_listener(event):
     text = raw.lower()
     print(f"[BOT] {raw}")
 
-    # Game start
+    # 🟢 GAME START
     if "game started" in text:
         game_active = True
         used_words.clear()
@@ -109,34 +111,37 @@ async def game_listener(event):
         yellows.clear()
         grays.clear()
 
-        with open(Config.WORDLIST_FILE, "r", encoding="utf-8") as f:
+        with open(WORDLIST_FILE, "r", encoding="utf-8") as f:
             possible = [w for w in json.load(f) if len(w) == 5]
 
-        await asyncio.sleep(Config.GUESS_DELAY)
-        await client.send_message(CHAT_ID, Config.START_WORD)
-        last_guess = Config.START_WORD
+        await asyncio.sleep(GUESS_DELAY)
+        await client.send_message(CHAT_ID, START_WORD)
+
+        last_guess = START_WORD
         used_words.add(last_guess)
-        print(f"[START] {Config.START_WORD}")
+        print(f"[START] {START_WORD}")
         return
 
-    # Win / End detection
+    # 🟢 WIN / END DETECTION (REAL FIX)
     if (
         "congrats" in text
         or "guessed it correctly" in text
         or "start with /new" in text
     ):
         print("[WIN] detected → auto new")
+
         game_active = False
         last_guess = None
         possible.clear()
 
-        if Config.AUTO_LOOP:
+        if AUTO_LOOP:
             await asyncio.sleep(2)
             await client.send_message(CHAT_ID, "/new@WordSeekBot")
             print("[AUTO] /new sent")
+
         return
 
-    # Hint handling
+    # 🟡 HINT HANDLING
     if game_active and any(e in text for e in ["🟩", "🟨", "🟥"]):
         emojis = re.findall("[🟩🟨🟥]", text)
         if len(emojis) < 5 or not last_guess:
@@ -145,15 +150,19 @@ async def game_listener(event):
         hint = "".join(emojis[-5:])
         update_constraints(last_guess, hint)
 
+        # 🟩🟩🟩🟩🟩 fallback win
         if hint == "🟩🟩🟩🟩🟩":
             print("[WIN] emoji solved")
+
             game_active = False
             last_guess = None
             possible.clear()
-            if Config.AUTO_LOOP:
+
+            if AUTO_LOOP:
                 await asyncio.sleep(2)
                 await client.send_message(CHAT_ID, "/new@WordSeekBot")
                 print("[AUTO] /new sent")
+
             return
 
         possible = [w for w in possible if valid(w) and w not in used_words]
@@ -167,15 +176,30 @@ async def game_listener(event):
         used_words.add(guess)
         last_guess = guess
 
-        await asyncio.sleep(Config.GUESS_DELAY)
+        await asyncio.sleep(GUESS_DELAY)
         await client.send_message(CHAT_ID, guess)
         print(f"[GUESS] {guess}")
 
-# ---------------- MAIN ----------------
-async def main():
+# ---------------- CONTROL API ----------------
+async def start_solver():
+    """Start the solver (called by host bot)"""
+    global client
+    if client.is_connected():
+        return
     await client.start()
-    print("🤖 WordSeek Bot running...")
-    print("💡 Send /host in target chat to activate")
+    print("Userbot running (HOSTED MODE)")
+
+async def stop_solver():
+    """Stop the solver"""
+    global client
+    if client.is_connected():
+        await client.disconnect()
+
+# Keep original main for compatibility
+async def main():
+    global client
+    await client.start()
+    print("Userbot running (FINAL AUTO-NEW)")
     await client.run_until_disconnected()
 
 if __name__ == "__main__":
